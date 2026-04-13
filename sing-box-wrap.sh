@@ -20,8 +20,7 @@ for arg in "$@"; do
 done
 
 if ((is_run)); then
-    "$SINGBOX" "$@" 2> >(tee /dev/stderr | sing2seq)
-    echo "running"
+    "$SINGBOX" "$@" 2> >(tee /dev/stderr | "${SING2SEQ:-sing2seq}")
     exit $?
 fi
 
