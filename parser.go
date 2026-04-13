@@ -1,6 +1,8 @@
 package main
 
 import (
+	"net"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -9,8 +11,21 @@ import (
 
 var (
 	ansiRe   = regexp.MustCompile(`\x1b\[[0-9;]*m`)
-	lineRe   = regexp.MustCompile(`^(?P<tz>[+-]\d{4})\s+(?P<date>\d{4}-\d{2}-\d{2})\s+(?P<time>\d{2}:\d{2}:\d{2}(?:\.\d+)?)\s+(?P<level>TRACE|DEBUG|INFO|WARN|ERROR|FATAL|PANIC)\s+(?:\[(?P<conn>\S+)\s+(?P<dur>[^\]]+)\]\s+)?(?P<rest>.*)$`)
-	moduleRe = regexp.MustCompile(`^(?P<module>[a-zA-Z0-9_\-]+)(?:/(?P<type>[a-zA-Z0-9_\-]+))?(?:\[(?P<tag>[^\]]*)\])?:\s+(?P<detail>.*)$`)
+	lineRe   = regexp.MustCompile(`^(?P<tz>[+-]\d{4})\s+(?P<date>\d{4}-\d{2}-\d{2})\s+(?P<time>\d{2}:\d{2}:\d{2}(?:\.\d+)?)\s+(?P<level>TRACE|DEBUG|INFO|WARN|ERROR|FATAL|PANIC)\s+(?:\[(?P<conn>\S+)\s+(?P<dur>[^]]+)]\s+)?(?P<rest>.*)$`)
+	moduleRe = regexp.MustCompile(`^(?P<module>[a-zA-Z0-9_\-]+)(?:/(?P<type>[a-zA-Z0-9_\-]+))?(?:\[(?P<tag>[^]]*)])?:\s+(?P<detail>.*)$`)
+
+	inboundToRe   = regexp.MustCompile(`^inbound(?: packet)? connection to (\[[0-9a-fA-F:]+]|[^:\s]+):(\d+)$`)
+	inboundFromRe = regexp.MustCompile(`^inbound(?: packet)? connection from (\[[0-9a-fA-F:]+]|[^:\s]+):(\d+)$`)
+	outboundToRe  = regexp.MustCompile(`^outbound connection to (\[[0-9a-fA-F:]+]|[^:\s]+):(\d+)$`)
+	processRe     = regexp.MustCompile(`^found process path: (.+), user: (\S+)$`)
+	fakeipRe      = regexp.MustCompile(`^found fakeip domain: (\S+)$`)
+	sniffedRe     = regexp.MustCompile(`^sniffed(?: packet)? protocol: (\S+?)(?:, domain: (\S+))?$`)
+	lookupDomRe   = regexp.MustCompile(`^lookup domain (\S+)$`)
+	lookupOkRe    = regexp.MustCompile(`^lookup succeed for ([^:]+): (.+)$`)
+	lookupFailRe  = regexp.MustCompile(`^lookup failed for ([^:]+): (.+)$`)
+	rrRe          = regexp.MustCompile(`^(?:exchanged|cached) (\w+) (\S+?)\.? (\d+) IN \w+ (.+)$`)
+	dnsStatusRe   = regexp.MustCompile(`^(?:exchanged|cached) (\S+?)\.? (\w+) (\d+)$`)
+	dnsQueryRe    = regexp.MustCompile(`^(?:exchange|exchange failed for|response rejected for) (\S+?)\.? IN (\w+)(?:: (.+))?$`)
 )
 
 var levelMap = map[string]string{
@@ -56,6 +71,135 @@ func namedMatches(re *regexp.Regexp, s string) map[string]string {
 		out[name] = m[i]
 	}
 	return out
+}
+
+func isIP(s string) bool {
+	s = strings.TrimPrefix(strings.TrimSuffix(s, "]"), "[")
+	return net.ParseIP(s) != nil
+}
+
+func setHost(ev *orderedEvent, hostKey string, ipKey string, host string) {
+	if isIP(host) {
+		ip := strings.TrimPrefix(strings.TrimSuffix(host, "]"), "[")
+		ev.set(ipKey, ip)
+		setIPs(ev, []string{ip})
+	} else {
+		ev.set(hostKey, host)
+	}
+}
+
+func dnsSet(ev *orderedEvent, k string, v any) {
+	dns, ok := ev.values["DNS"].(*orderedEvent)
+	if !ok {
+		dns = newEvent()
+		ev.set("DNS", dns)
+	}
+	dns.set(k, v)
+}
+
+func setIPs(ev *orderedEvent, ips []string) {
+	ev.set("AllIP", ips)
+	var hasV4, hasV6 bool
+	for _, s := range ips {
+		ip := net.ParseIP(strings.TrimPrefix(strings.TrimSuffix(s, "]"), "["))
+		if ip == nil {
+			continue
+		}
+		if ip.To4() != nil {
+			hasV4 = true
+		} else {
+			hasV6 = true
+		}
+	}
+	ev.set("IPv4", hasV4)
+	ev.set("IPv6", hasV6)
+}
+
+func enrich(ev *orderedEvent, detail string) {
+	if m := inboundToRe.FindStringSubmatch(detail); m != nil {
+		setHost(ev, "Domain", "IP", m[1])
+		if p, err := strconv.Atoi(m[2]); err == nil {
+			ev.set("Port", p)
+		}
+		return
+	}
+	if m := inboundFromRe.FindStringSubmatch(detail); m != nil {
+		setHost(ev, "SrcDomain", "SrcIP", m[1])
+		if p, err := strconv.Atoi(m[2]); err == nil {
+			ev.set("SrcPort", p)
+		}
+		return
+	}
+	if m := outboundToRe.FindStringSubmatch(detail); m != nil {
+		setHost(ev, "Domain", "IP", m[1])
+		if p, err := strconv.Atoi(m[2]); err == nil {
+			ev.set("Port", p)
+		}
+		return
+	}
+	if m := processRe.FindStringSubmatch(detail); m != nil {
+		ev.set("Process", m[1])
+		ev.set("ProcessName", filepath.Base(m[1]))
+		ev.set("ProcessUser", m[2])
+		return
+	}
+	if m := fakeipRe.FindStringSubmatch(detail); m != nil {
+		ev.set("Domain", m[1])
+		return
+	}
+	if m := sniffedRe.FindStringSubmatch(detail); m != nil {
+		ev.set("Protocol", m[1])
+		if m[2] != "" {
+			ev.set("Domain", m[2])
+		}
+		return
+	}
+	if m := lookupOkRe.FindStringSubmatch(detail); m != nil {
+		ev.set("Domain", m[1])
+		ips := strings.Fields(m[2])
+		if len(ips) > 0 {
+			ev.set("IP", ips[0])
+			setIPs(ev, ips)
+		}
+		return
+	}
+	if m := lookupFailRe.FindStringSubmatch(detail); m != nil {
+		ev.set("Domain", m[1])
+		dnsSet(ev, "Error", m[2])
+		return
+	}
+	if m := lookupDomRe.FindStringSubmatch(detail); m != nil {
+		ev.set("Domain", m[1])
+		return
+	}
+	if m := rrRe.FindStringSubmatch(detail); m != nil {
+		ev.set("Domain", m[2])
+		dnsSet(ev, "QueryType", m[1])
+		if ttl, err := strconv.Atoi(m[3]); err == nil {
+			dnsSet(ev, "TTL", ttl)
+		}
+		rdata := m[4]
+		if m[1] == "A" || m[1] == "AAAA" {
+			ev.set("IP", rdata)
+			setIPs(ev, []string{rdata})
+		} else {
+			dnsSet(ev, "RData", rdata)
+		}
+		return
+	}
+	if m := dnsStatusRe.FindStringSubmatch(detail); m != nil {
+		ev.set("Domain", m[1])
+		dnsSet(ev, "RCode", m[2])
+		return
+	}
+	if m := dnsQueryRe.FindStringSubmatch(detail); m != nil {
+		ev.set("Domain", m[1])
+		dnsSet(ev, "QueryType", m[2])
+		if m[3] != "" {
+			dnsSet(ev, "Error", m[3])
+		}
+		return
+	}
 }
 
 func parseLine(raw string) *orderedEvent {
@@ -116,6 +260,7 @@ func parseLine(raw string) *orderedEvent {
 			}
 		}
 		ev.set("Detail", mm["detail"])
+		enrich(ev, mm["detail"])
 
 		var tmpl strings.Builder
 		if hasConn {
