@@ -5,22 +5,25 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 )
 
 var version = "main"
 
 func main() {
-	defaultURL := os.Getenv("SEQ_URL")
-	if defaultURL == "" {
-		defaultURL = "http://localhost:5341"
-	}
-	defaultKey := os.Getenv("SEQ_API_KEY")
-
-	url := flag.String("url", defaultURL, "Seq base URL")
-	apiKey := flag.String("api-key", defaultKey, "Seq API key")
+	url := flag.String("url", "http://localhost:5341", "Seq base URL")
+	apiKey := flag.String("api-key", "", "Seq API key")
 	insecure := flag.Bool("insecure", false, "skip TLS verification")
+	timestamp := flag.Bool("timestamp", false, "include timestamp in sing2seq's own log output (match sing-box log.timestamp)")
 	showVersion := flag.Bool("version", false, "print version and exit")
-	flag.Parse()
+
+	args := os.Args[1:]
+	if opts := strings.TrimSpace(os.Getenv("SING2SEQ_OPTS")); opts != "" {
+		args = append(strings.Fields(opts), args...)
+	}
+	_ = flag.CommandLine.Parse(args)
+
+	logTimestamp = *timestamp
 
 	if *showVersion {
 		fmt.Printf("sing2seq %s\n", version)

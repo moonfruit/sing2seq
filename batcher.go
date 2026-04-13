@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 )
@@ -116,6 +115,7 @@ func (b *Batcher) run() {
 		case ev, ok := <-inC:
 			if !ok {
 				closed = true
+				retryC = nil
 				dispatch()
 				break
 			}
@@ -124,7 +124,7 @@ func (b *Batcher) run() {
 				drop := len(pending) - dropTarget
 				pending = pending[:copy(pending, pending[drop:])]
 				droppedTotal += drop
-				printf("[sing2seq] buffer overflow: dropped %d oldest events (total dropped=%d)\n",
+				logf("WARN", "sing2seq: buffer overflow: dropped %d oldest events (total dropped=%d)",
 					drop, droppedTotal)
 			}
 			dispatch()
@@ -135,8 +135,12 @@ func (b *Batcher) run() {
 				pending = pending[:copy(pending, pending[r.n:])]
 				backoff = initialBackoff
 				dispatch()
+			} else if closed {
+				logf("ERROR", "sing2seq: post failed during shutdown (pending=%d): %v; dropping remaining events", len(pending), r.err)
+				droppedTotal += len(pending)
+				pending = pending[:0]
 			} else {
-				printf("[sing2seq] post failed (pending=%d): %v; retry in %s\n", len(pending), r.err, backoff)
+				logf("WARN", "sing2seq: post failed (pending=%d): %v; retry in %s", len(pending), r.err, backoff)
 				retryC = time.After(backoff)
 				backoff = min(backoff*2, maxBackoff)
 			}
@@ -184,8 +188,4 @@ func (b *Batcher) post(events []*orderedEvent) error {
 	}
 	_, _ = io.Copy(io.Discard, resp.Body)
 	return nil
-}
-
-func printf(format string, a ...interface{}) {
-	_, _ = fmt.Fprintf(os.Stderr, format, a...)
 }

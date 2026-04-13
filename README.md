@@ -16,19 +16,23 @@ sing-box run ... 2>&1 | sing2seq -url http://localhost:5341 -api-key XXX
 
 ### 命令行参数
 
-| 参数          | 说明          | 环境变量          | 默认值     |
-|-------------|-------------|---------------|---------|
-| `-url`      | Seq 服务器地址   | `SEQ_URL`     | 必需      |
-| `-api-key`  | Seq API Key | `SEQ_API_KEY` | 必需      |
-| `-insecure` | 跳过 TLS 证书验证 | —             | `false` |
-| `-version`  | 打印版本号并退出    | —             | `false` |
+| 参数           | 说明                                        | 默认值                     |
+|--------------|-------------------------------------------|-------------------------|
+| `-url`       | Seq 服务器地址                                 | `http://localhost:5341` |
+| `-api-key`   | Seq API Key                               | 空（匿名 ingest）            |
+| `-insecure`  | 跳过 TLS 证书验证                               | `false`                 |
+| `-timestamp` | 自身日志是否带时间戳（与 sing-box `log.timestamp` 对齐） | `false`                 |
+| `-version`   | 打印版本号并退出                                  | `false`                 |
+
+### 环境变量
+
+- `SING2SEQ_OPTS`：默认命令行参数，按空白切分后**拼在**实际命令行参数**之前**；命令行显式传入的参数会覆盖此处设置。不支持引号/转义，内容带空格的值请直接用命令行传递。
 
 ### 完整示例
 
 ```bash
-# 使用环境变量
-export SEQ_URL=http://localhost:5341
-export SEQ_API_KEY=your-api-key
+# 通过 SING2SEQ_OPTS 设置默认参数
+export SING2SEQ_OPTS="-url http://localhost:5341 -api-key your-api-key -timestamp"
 sing-box run -c config.json 2>&1 | ./sing2seq
 
 # 跳过 TLS 验证（自签名证书）
@@ -66,7 +70,7 @@ Seq /ingest/clef 端点
 - **三协程模型**：`parser` 生产事件 → `batcher` 管理缓冲与背压 → `dispatch` 执行 HTTP POST
 - **背压控制**：缓冲区上限 50,000 条，超过时裁剪至 25,000 条并丢弃最旧的
 - **指数退避**：失败后重试间隔 1s → 2s → 4s ... 最大 60s，成功后重置
-- **阻塞关闭**：`Close()` 会等待所有待处理事件投递完成后才返回
+- **阻塞关闭**：`Close()` 会等待所有待处理事件投递完成后才返回；若 stdin 已关闭后 Seq 仍不可达，会打印错误并丢弃剩余事件退出，不会无限重试
 
 ## 依赖
 
