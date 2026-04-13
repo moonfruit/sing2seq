@@ -3,65 +3,94 @@ package main
 import (
 	"bufio"
 	"encoding/json"
-	"flag"
 	"fmt"
 	"os"
-	"strconv"
-	"strings"
+
+	"github.com/spf13/cobra"
 )
 
 var version = "main"
 
+var (
+	apiKey    string
+	insecure  bool
+	timestamp bool
+	url       string
+	stdout    bool
+)
+
+var rootCmd *cobra.Command
+
 func main() {
-	apiKey := flag.String("api-key", "", "Seq API key")
-	insecure := flag.Bool("insecure", false, "skip TLS verification")
-	timestamp := flag.Bool("timestamp", false, "include timestamp in sing2seq's own log output (match sing-box log.timestamp)")
-	showVersion := flag.Bool("version", false, "print version and exit")
-
-	var (
-		urlVal    string
-		stdoutVal = true
-		lastMode  = "stdout"
-	)
-	flag.Func("url", "Seq base URL (cancels -stdout)", func(s string) error {
-		urlVal = s
-		lastMode = "url"
-		return nil
-	})
-	flag.BoolFunc("stdout", "write CLEF JSON to stdout, one event per line (cancels -url) (default true)", func(s string) error {
-		v, err := strconv.ParseBool(s)
-		if err != nil {
-			return err
-		}
-		stdoutVal = v
-		lastMode = "stdout"
-		return nil
-	})
-
-	args := os.Args[1:]
-	if opts := strings.TrimSpace(os.Getenv("SING2SEQ_OPTS")); opts != "" {
-		args = append(strings.Fields(opts), args...)
-	}
-	_ = flag.CommandLine.Parse(args)
-
-	logTimestamp = *timestamp
-
-	if *showVersion {
-		fmt.Printf("sing2seq %s\n", version)
-		return
+	pipeCmd := &cobra.Command{
+		Use:   "pipe",
+		Short: "Read sing-box logs from stdin and forward to Seq",
+		Run:   runPipe,
 	}
 
-	switch lastMode {
-	case "stdout":
-		urlVal = ""
-	case "url":
-		stdoutVal = false
+	versionCmd := &cobra.Command{
+		Use:   "version",
+		Short: "Print version and exit",
+		Run: func(cmd *cobra.Command, args []string) {
+			fmt.Printf("sing2seq %s\n", version)
+		},
+	}
+
+	completionCmd := &cobra.Command{
+		Use:   "completion [bash|zsh|fish|powershell]",
+		Short: "Generate shell completion script",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			switch args[0] {
+			case "bash":
+				return rootCmd.GenBashCompletion(os.Stdout)
+			case "zsh":
+				return rootCmd.GenZshCompletion(os.Stdout)
+			case "fish":
+				return rootCmd.GenFishCompletion(os.Stdout, true)
+			case "powershell":
+				return rootCmd.GenPowerShellCompletionWithDesc(os.Stdout)
+			default:
+				return fmt.Errorf("unsupported shell: %s", args[0])
+			}
+		},
+	}
+
+	// Register flags on pipeCmd
+	pipeCmd.Flags().StringVar(&apiKey, "api-key", "", "Seq API key")
+	pipeCmd.Flags().BoolVar(&insecure, "insecure", false, "skip TLS verification")
+	pipeCmd.Flags().BoolVar(&timestamp, "timestamp", false, "include timestamp in sing2seq's own log output")
+	pipeCmd.Flags().StringVar(&url, "url", "", "Seq base URL")
+	pipeCmd.Flags().BoolVar(&stdout, "stdout", true, "write CLEF JSON to stdout, one event per line (default true)")
+
+	rootCmd = &cobra.Command{
+		Use:   "sing2seq",
+		Short: "Forward sing-box logs to Seq",
+		Run:   runPipe,
+	}
+
+	// Make pipeCmd's flags available to rootCmd
+	rootCmd.Flags().AddFlagSet(pipeCmd.Flags())
+
+	rootCmd.AddCommand(pipeCmd, versionCmd, completionCmd)
+
+	if err := rootCmd.Execute(); err != nil {
+		os.Exit(1)
+	}
+}
+
+func runPipe(cmd *cobra.Command, args []string) {
+	logTimestamp = timestamp
+
+	mode := "stdout"
+	if stdout == false && url != "" {
+		mode = "url"
 	}
 
 	scanner := bufio.NewScanner(os.Stdin)
 	scanner.Buffer(make([]byte, 64*1024), 4*1024*1024)
 
-	if stdoutVal {
+	if mode == "stdout" {
 		w := bufio.NewWriter(os.Stdout)
 		defer func() { _ = w.Flush() }()
 		enc := json.NewEncoder(w)
@@ -73,12 +102,12 @@ func main() {
 		return
 	}
 
-	if urlVal == "" {
+	if url == "" {
 		_, _ = fmt.Fprintln(os.Stderr, "sing2seq: -url is required when -stdout=false")
 		os.Exit(2)
 	}
 
-	b := NewBatcher(urlVal, *apiKey, *insecure)
+	b := NewBatcher(url, apiKey, insecure)
 	b.Start()
 	for scanner.Scan() {
 		if ev := parseLine(scanner.Text()); ev != nil {
