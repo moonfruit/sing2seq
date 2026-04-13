@@ -1,0 +1,18 @@
+services:
+  app:
+    image: datalust/seq
+    restart: unless-stopped
+    environment:
+      ACCEPT_EULA: "Y"
+      SEQ_FIRSTRUN_ADMINPASSWORD: "password"
+    volumes:
+      - data:/data
+#  gelf:
+#    image: datalust/seq-input-gelf
+#    restart: unless-stopped
+#    depends_on:
+#      - app
+#    environment:
+#      SEQ_ADDRESS: "http://app:5341"
+volumes:
+  data:
