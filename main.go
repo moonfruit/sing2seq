@@ -3,8 +3,11 @@ package main
 import (
 	"bufio"
 	"flag"
+	"fmt"
 	"os"
 )
+
+var version = "main"
 
 func main() {
 	defaultURL := os.Getenv("SEQ_URL")
@@ -16,7 +19,13 @@ func main() {
 	url := flag.String("url", defaultURL, "Seq base URL")
 	apiKey := flag.String("api-key", defaultKey, "Seq API key")
 	insecure := flag.Bool("insecure", false, "skip TLS verification")
+	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
+
+	if *showVersion {
+		fmt.Printf("sing2seq %s\n", version)
+		return
+	}
 
 	b := NewBatcher(*url, *apiKey, *insecure)
 	b.Start()

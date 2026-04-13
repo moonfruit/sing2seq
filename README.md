@@ -16,11 +16,12 @@ sing-box run ... 2>&1 | sing2seq -url http://localhost:5341 -api-key XXX
 
 ### 命令行参数
 
-| 参数 | 说明 | 环境变量 | 默认值 |
-|------|------|----------|--------|
-| `-url` | Seq 服务器地址 | `SEQ_URL` | 必需 |
-| `-api-key` | Seq API Key | `SEQ_API_KEY` | 必需 |
-| `-insecure` | 跳过 TLS 证书验证 | — | `false` |
+| 参数          | 说明          | 环境变量          | 默认值     |
+|-------------|-------------|---------------|---------|
+| `-url`      | Seq 服务器地址   | `SEQ_URL`     | 必需      |
+| `-api-key`  | Seq API Key | `SEQ_API_KEY` | 必需      |
+| `-insecure` | 跳过 TLS 证书验证 | —             | `false` |
+| `-version`  | 打印版本号并退出    | —             | `false` |
 
 ### 完整示例
 
