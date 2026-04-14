@@ -44,27 +44,31 @@ func (e *orderedEvent) MarshalJSON() ([]byte, error) {
 }
 
 type Batcher struct {
-	URL    string
-	APIKey string
-	Client *http.Client
-	Size   int
+	URL       string
+	APIKey    string
+	Client    *http.Client
+	Size      int
+	Timestamp bool
 
+	logf logfFunc
 	ch   chan *orderedEvent
 	done chan struct{}
 }
 
-func NewBatcher(url, apiKey string, insecure bool) *Batcher {
+func NewBatcher(url, apiKey string, insecure, timestamp bool) *Batcher {
 	tr := &http.Transport{}
 	if insecure {
 		tr.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 	}
 	return &Batcher{
-		URL:    url,
-		APIKey: apiKey,
-		Client: &http.Client{Timeout: 30 * time.Second, Transport: tr},
-		Size:   batchSize,
-		ch:     make(chan *orderedEvent, channelBuffer),
-		done:   make(chan struct{}),
+		URL:       url,
+		APIKey:    apiKey,
+		Client:    &http.Client{Timeout: 30 * time.Second, Transport: tr},
+		Size:      batchSize,
+		Timestamp: timestamp,
+		logf:      newLogf(timestamp),
+		ch:        make(chan *orderedEvent, channelBuffer),
+		done:      make(chan struct{}),
 	}
 }
 
@@ -124,7 +128,7 @@ func (b *Batcher) run() {
 				drop := len(pending) - dropTarget
 				pending = pending[:copy(pending, pending[drop:])]
 				droppedTotal += drop
-				logf("WARN", "sing2seq: buffer overflow: dropped %d oldest events (total dropped=%d)",
+				b.logf("WARN", "sing2seq: buffer overflow: dropped %d oldest events (total dropped=%d)",
 					drop, droppedTotal)
 			}
 			dispatch()
@@ -136,11 +140,11 @@ func (b *Batcher) run() {
 				backoff = initialBackoff
 				dispatch()
 			} else if closed {
-				logf("ERROR", "sing2seq: post failed during shutdown (pending=%d): %v; dropping remaining events", len(pending), r.err)
+				b.logf("ERROR", "sing2seq: post failed during shutdown (pending=%d): %v; dropping remaining events", len(pending), r.err)
 				droppedTotal += len(pending)
 				pending = pending[:0]
 			} else {
-				logf("WARN", "sing2seq: post failed (pending=%d): %v; retry in %s", len(pending), r.err, backoff)
+				b.logf("WARN", "sing2seq: post failed (pending=%d): %v; retry in %s", len(pending), r.err, backoff)
 				retryC = time.After(backoff)
 				backoff = min(backoff*2, maxBackoff)
 			}
