@@ -187,15 +187,14 @@ func (o *RunCmd) buildRunArgs(args []string) []string {
 			o.Pipe.Logf("FATAL", "failed to create timestamp config: %v", err)
 			os.Exit(1)
 		}
-		defer func() {
+		if _, err := f.WriteString(`{"log":{"timestamp":true}}`); err != nil {
 			_ = f.Close()
 			_ = os.Remove(f.Name())
-		}()
-		if _, err := f.WriteString(`{"log":{"timestamp":true}}`); err != nil {
 			o.Pipe.Logf("FATAL", "failed to write timestamp config: %v", err)
 			os.Exit(1)
 		}
 		_ = f.Close()
+		defer func() { _ = os.Remove(f.Name()) }()
 		runArgs = append(runArgs, "-c", f.Name())
 	}
 	for _, c := range o.Config {
