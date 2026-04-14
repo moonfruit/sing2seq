@@ -35,7 +35,7 @@ func main() {
 		Run:                func(cmd *cobra.Command, args []string) { runOpts.Run(args) },
 	}
 	runOpts.Pipe.Bind(runCmd.Flags())
-	runCmd.Flags().StringVar(&runOpts.SingBox, "sing-box", "sing-box", "sing-box command to spawn")
+	runCmd.Flags().StringVarP(&runOpts.SingBox, "sing-box", "p", "sing-box", "sing-box command to spawn")
 	runCmd.Flags().StringArrayVarP(&runOpts.Config, "config", "c", nil, "sing-box configuration file path")
 	runCmd.Flags().StringArrayVarP(&runOpts.ConfigDirectory, "config-directory", "C", nil, "sing-box configuration directory path")
 	runCmd.Flags().StringVarP(&runOpts.Directory, "directory", "D", "", "sing-box working directory")
@@ -72,8 +72,8 @@ func (o *Pipe) Logf(level, format string, a ...any) {
 }
 
 func (o *Pipe) Bind(flags *pflag.FlagSet) {
-	flags.StringVar(&o.URL, "url", "", "Seq base URL; if empty, write CLEF JSON to stdout")
-	flags.StringVar(&o.ApiKey, "api-key", "", "Seq API key")
+	flags.StringVarP(&o.URL, "url", "u", "", "Seq base URL; if empty, write CLEF JSON to stdout")
+	flags.StringVarP(&o.ApiKey, "api-key", "k", "", "Seq API key")
 	flags.BoolVar(&o.Insecure, "insecure", false, "skip TLS verification")
 	flags.BoolVar(&o.Timestamp, "timestamp", false, "include timestamp in log output")
 	flags.BoolVar(&o.DisableColor, "disable-color", false, "disable color output")
