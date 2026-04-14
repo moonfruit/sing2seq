@@ -36,6 +36,9 @@ func main() {
 	}
 	runOpts.Pipe.Bind(runCmd.Flags())
 	runCmd.Flags().StringVar(&runOpts.SingBox, "sing-box", "sing-box", "sing-box command to spawn")
+	runCmd.Flags().StringArrayVarP(&runOpts.Config, "config", "c", nil, "sing-box configuration file path")
+	runCmd.Flags().StringArrayVarP(&runOpts.ConfigDirectory, "config-directory", "C", nil, "sing-box configuration directory path")
+	runCmd.Flags().StringVarP(&runOpts.Directory, "directory", "D", "", "sing-box working directory")
 
 	rootCmd := &cobra.Command{
 		Use:     "sing2seq",
@@ -72,8 +75,8 @@ func (o *Pipe) Bind(flags *pflag.FlagSet) {
 	flags.StringVar(&o.URL, "url", "", "Seq base URL; if empty, write CLEF JSON to stdout")
 	flags.StringVar(&o.ApiKey, "api-key", "", "Seq API key")
 	flags.BoolVar(&o.Insecure, "insecure", false, "skip TLS verification")
-	flags.BoolVar(&o.Timestamp, "timestamp", false, "include timestamp in sing2seq's own log output")
-	flags.BoolVar(&o.DisableColor, "disable-color", false, "disable ANSI color in sing2seq's own log output")
+	flags.BoolVar(&o.Timestamp, "timestamp", false, "include timestamp in log output")
+	flags.BoolVar(&o.DisableColor, "disable-color", false, "disable color output")
 }
 
 func (o *Pipe) Run(r io.Reader) {
@@ -123,11 +126,15 @@ func (o *Pipe) batcherSink() func(*orderedEvent) {
 
 type RunCmd struct {
 	Pipe
-	SingBox string
+	SingBox         string
+	Config          []string
+	ConfigDirectory []string
+	Directory       string
 }
 
 func (o *RunCmd) Run(args []string) {
-	cmd := exec.Command(o.SingBox, append([]string{"run"}, args...)...)
+	runArgs := o.buildRunArgs(args)
+	cmd := exec.Command(o.SingBox, runArgs...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 
@@ -170,4 +177,38 @@ func (o *RunCmd) Run(args []string) {
 		o.Pipe.Logf("ERROR", "%s exited: %v", o.SingBox, err)
 		os.Exit(1)
 	}
+}
+
+func (o *RunCmd) buildRunArgs(args []string) []string {
+	runArgs := []string{"run"}
+	if o.Timestamp {
+		f, err := os.CreateTemp("", "sing2seq-timestamp-*.json")
+		if err != nil {
+			o.Pipe.Logf("FATAL", "failed to create timestamp config: %v", err)
+			os.Exit(1)
+		}
+		defer func() {
+			_ = f.Close()
+			_ = os.Remove(f.Name())
+		}()
+		if _, err := f.WriteString(`{"log":{"timestamp":true}}`); err != nil {
+			o.Pipe.Logf("FATAL", "failed to write timestamp config: %v", err)
+			os.Exit(1)
+		}
+		_ = f.Close()
+		runArgs = append(runArgs, "-c", f.Name())
+	}
+	for _, c := range o.Config {
+		runArgs = append(runArgs, "-c", c)
+	}
+	for _, c := range o.ConfigDirectory {
+		runArgs = append(runArgs, "-C", c)
+	}
+	if o.Directory != "" {
+		runArgs = append(runArgs, "-D", o.Directory)
+	}
+	if o.DisableColor {
+		runArgs = append(runArgs, "--disable-color")
+	}
+	return append(runArgs, args...)
 }
