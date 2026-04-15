@@ -145,12 +145,14 @@ func enrich(ev *orderedEvent, detail string) {
 	}
 	if m := fakeipRe.FindStringSubmatch(detail); m != nil {
 		ev.set("Domain", m[1])
+		ev.set("FakeIP", true)
 		return
 	}
 	if m := sniffedRe.FindStringSubmatch(detail); m != nil {
 		ev.set("Protocol", m[1])
 		if m[2] != "" {
 			ev.set("Domain", m[2])
+			ev.set("Sniffed", true)
 		}
 		return
 	}
