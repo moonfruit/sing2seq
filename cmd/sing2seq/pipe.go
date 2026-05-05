@@ -38,11 +38,16 @@ func (p *Pipe) Run(r io.Reader) error {
 
 	bus.Subscribe(newPrettyRenderer(p.Timestamp, p.DisableColor))
 
-	var sinkClose func() error
+	// drainSink runs BEFORE bus.Close (seq mode: sk.Close drains pending HTTP
+	// queue; late diagnostics emitted during drain still flow to bus → pretty).
+	// flushSink runs AFTER bus.Close (stdout mode: bus must drive Deliver calls
+	// into the bufio.Writer before we Flush it).
+	var drainSink func() error
+	var flushSink func()
 	if p.URL == "" {
 		stdout := newStdoutSink()
 		bus.Subscribe(stdout)
-		sinkClose = func() error { stdout.Flush(); return nil }
+		flushSink = stdout.Flush
 	} else {
 		sk := seq.NewSink(seq.Config{
 			URL: p.URL, APIKey: p.APIKey, Insecure: p.Insecure,
@@ -53,7 +58,7 @@ func (p *Pipe) Run(r io.Reader) error {
 			MatchFn:   func(*clef.Event) bool { return true },
 			DeliverFn: func(e *clef.Event) { sk.Submit(e) },
 		})
-		sinkClose = sk.Close
+		drainSink = sk.Close
 	}
 
 	scanner := bufio.NewScanner(r)
@@ -64,7 +69,13 @@ func (p *Pipe) Run(r io.Reader) error {
 		}
 	}
 
-	bus.Close() // drain all in-flight events before flushing / closing sink
-	err := sinkClose()
-	return err
+	var sinkErr error
+	if drainSink != nil {
+		sinkErr = drainSink()
+	}
+	bus.Close()
+	if flushSink != nil {
+		flushSink()
+	}
+	return sinkErr
 }
