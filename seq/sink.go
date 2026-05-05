@@ -21,7 +21,6 @@ const (
 	defaultBatchSize      = 200
 	defaultChannelBuffer  = 1024
 	defaultMaxPending     = 50000
-	defaultDropTarget     = 25000
 	defaultInitialBackoff = 1 * time.Second
 	defaultMaxBackoff     = 60 * time.Second
 )
@@ -94,18 +93,22 @@ func (s *Sink) Start() {
 	s.startOnce.Do(func() { go s.run() })
 }
 
-// Submit 投递事件；O(1) 不阻塞；nil 忽略。
+// Submit 投递事件；O(1) 不阻塞；nil 忽略；Close 之后丢弃。
+// 持锁期间执行非阻塞 channel 发送，避免与 Close 竞态。
 func (s *Sink) Submit(ev *clef.Event) {
 	if ev == nil {
 		return
 	}
 	s.closeMu.Lock()
-	closed := s.closed
-	s.closeMu.Unlock()
-	if closed {
+	defer s.closeMu.Unlock()
+	if s.closed {
 		return
 	}
-	s.ch <- ev
+	select {
+	case s.ch <- ev:
+	default:
+		// ChannelBuffer 满（罕见，因为 manager goroutine 是 O(1) 消费）→ 丢弃。
+	}
 }
 
 // Close 停止接受新事件；阻塞直到 pending 排空；返回 drain 期间最后一个 post error。
