@@ -64,7 +64,7 @@ func (p *Pipe) Run(r io.Reader) error {
 		}
 	}
 
+	bus.Close() // drain all in-flight events before flushing / closing sink
 	err := sinkClose()
-	bus.Close()
 	return err
 }

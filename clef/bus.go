@@ -82,23 +82,19 @@ func (b *Bus) unsubscribe(id uint64) {
 	}
 	delete(b.subs, id)
 	b.mu.Unlock()
-	close(sub.done)
+	close(sub.ch) // signal run() to drain and exit
+	<-sub.done    // wait for run() to finish
 }
 
-// Publish 投递事件给所有匹配的订阅方；不阻塞。
+// Publish 投递事件给所有匹配的订阅方；不阻塞订阅方处理（select default 丢弃满 channel 的事件）。
+// 持锁期间执行非阻塞发送，与 Close/unsubscribe 互斥，避免与关闭操作竞争。
 func (b *Bus) Publish(e *Event) {
 	b.mu.Lock()
+	defer b.mu.Unlock()
 	if b.closed {
-		b.mu.Unlock()
 		return
 	}
-	targets := make([]*subscription, 0, len(b.subs))
 	for _, s := range b.subs {
-		targets = append(targets, s)
-	}
-	b.mu.Unlock()
-
-	for _, s := range targets {
 		if !s.sub.Match(e) {
 			continue
 		}
@@ -110,7 +106,8 @@ func (b *Bus) Publish(e *Event) {
 	}
 }
 
-// Close 停止所有订阅方；之后的 Publish 与 Subscribe 是 no-op。
+// Close 关闭所有订阅方；先关闭它们的输入 channel 让 run() 把已入队事件处理完，
+// 再等待所有 run goroutine 退出。返回后任何 Publish/Subscribe 都是 no-op。
 func (b *Bus) Close() {
 	b.mu.Lock()
 	if b.closed {
@@ -124,18 +121,19 @@ func (b *Bus) Close() {
 		delete(b.subs, id)
 	}
 	b.mu.Unlock()
+	// Close subscriber input channels: run() will drain remaining events then exit.
 	for _, s := range subs {
-		close(s.done)
+		close(s.ch)
+	}
+	// Wait for run goroutines to finish draining.
+	for _, s := range subs {
+		<-s.done
 	}
 }
 
 func (b *Bus) run(s *subscription) {
-	for {
-		select {
-		case <-s.done:
-			return
-		case e := <-s.ch:
-			s.sub.Deliver(e)
-		}
+	defer close(s.done)
+	for e := range s.ch {
+		s.sub.Deliver(e)
 	}
 }
