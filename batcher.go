@@ -20,29 +20,6 @@ const (
 	maxBackoff     = 60 * time.Second
 )
 
-func (e *orderedEvent) MarshalJSON() ([]byte, error) {
-	var buf bytes.Buffer
-	buf.WriteByte('{')
-	for i, k := range e.keys {
-		if i > 0 {
-			buf.WriteByte(',')
-		}
-		kb, err := json.Marshal(k)
-		if err != nil {
-			return nil, err
-		}
-		buf.Write(kb)
-		buf.WriteByte(':')
-		vb, err := json.Marshal(e.values[k])
-		if err != nil {
-			return nil, err
-		}
-		buf.Write(vb)
-	}
-	buf.WriteByte('}')
-	return buf.Bytes(), nil
-}
-
 type Batcher struct {
 	URL    string
 	APIKey string
