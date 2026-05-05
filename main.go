@@ -113,15 +113,8 @@ func stdoutSink() func(*orderedEvent) {
 }
 
 func (o *Pipe) batcherSink() func(*orderedEvent) {
-	b := NewBatcher(o.URL, o.ApiKey, o.Insecure, o.Logf)
-	b.Start()
-	return func(ev *orderedEvent) {
-		if ev == nil {
-			b.Close()
-			return
-		}
-		b.Submit(ev)
-	}
+	// TODO(Task 1.9): rewrite using seq.Sink; NewBatcher removed in Task 1.7.
+	panic("batcherSink: not implemented (pending Task 1.9 CLI rewrite)")
 }
 
 type RunCmd struct {
