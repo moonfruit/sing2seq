@@ -18,7 +18,7 @@ var levelColor = map[string]string{
 
 const colorReset = "\x1b[0m"
 
-var placeholderRe = regexp.MustCompile(`\{([A-Za-z_][A-Za-z0-9_]*)\}`)
+var placeholderRe = regexp.MustCompile(`\{([A-Za-z_][A-Za-z0-9_]*)}`)
 
 type prettyRenderer struct {
 	timestamp    bool
@@ -53,9 +53,10 @@ func (r *prettyRenderer) Deliver(e *clef.Event) {
 }
 
 // renderBody:
-//   sing-box: <Module>[/<Type>][[<Tag>]]: <Detail>  (existing @mt template handles this)
-//   sing2seq: sing2seq[/<Module>]: <Detail>
-//   else:     fall back to @mt template
+//
+//	sing-box: <Module>[/<Type>][[<Tag>]]: <Detail>  (existing @mt template handles this)
+//	sing2seq: sing2seq[/<Module>]: <Detail>
+//	else:     fall back to @mt template
 func (r *prettyRenderer) renderBody(e *clef.Event, source, module string) string {
 	mt := getString(e, "@mt")
 	switch source {
