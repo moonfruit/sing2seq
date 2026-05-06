@@ -1,4 +1,4 @@
-module sing2seq
+module github.com/moonfruit/sing2seq
 
 go 1.26
 
